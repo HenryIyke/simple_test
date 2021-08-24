@@ -1,94 +1,113 @@
-#include <stdlib.h>
-#include <string.h>
-#include <stdio.h>
-#include <errno.h>
 #include "shell.h"
-#include "node.h"
-#include "parser.h"
 
-struct node_s *new_node(enum node_type_e type)
+alias_t *add_alias_end(alias_t **head, char *name, char *value);
+void free_alias_list(alias_t *head);
+list_t *add_node_end(list_t **head, char *dir);
+void free_list(list_t *head);
+
+/**
+ * add_alias_end - Adds a node to the end of a alias_t linked list.
+ * @head: A pointer to the head of the list_t list.
+ * @name: The name of the new alias to be added.
+ * @value: The value of the new alias to be added.
+ *
+ * Return: If an error occurs - NULL.
+ *         Otherwise - a pointer to the new node.
+ */
+alias_t *add_alias_end(alias_t **head, char *name, char *value)
 {
-    struct node_s *node = malloc(sizeof(struct node_s));
-    if(!node)
-    {
-        return (NULL);
-    }
-    
-    memset(node, 0, sizeof(struct node_s));
-    node->type = type;
-    
-    return (node);
+	alias_t *new_node = malloc(sizeof(alias_t));
+	alias_t *last;
+
+	if (!new_node)
+		return (NULL);
+
+	new_node->next = NULL;
+	new_node->name = malloc(sizeof(char) * (_strlen(name) + 1));
+	if (!new_node->name)
+	{
+		free(new_node);
+		return (NULL);
+	}
+	new_node->value = value;
+	_strcpy(new_node->name, name);
+
+	if (*head)
+	{
+		last = *head;
+		while (last->next != NULL)
+			last = last->next;
+		last->next = new_node;
+	}
+	else
+		*head = new_node;
+
+	return (new_node);
 }
 
-void add_child_node(struct node_s *parent, struct node_s *child)
+/**
+ * add_node_end - Adds a node to the end of a list_t linked list.
+ * @head: A pointer to the head of the list_t list.
+ * @dir: The directory path for the new node to contain.
+ *
+ * Return: If an error occurs - NULL.
+ *         Otherwise - a pointer to the new node.
+ */
+list_t *add_node_end(list_t **head, char *dir)
 {
-    if(!parent || !child)
-    {
-        return;
-    }
-    if(!parent->first_child)
-    {
-        parent->first_child = child;
-    }
-    else
-    {
-        struct node_s *sibling = parent->first_child;
-    
-    	while(sibling->next_sibling)
-        {
-            sibling = sibling->next_sibling;
-        }
-    
-    	sibling->next_sibling = child;
-        child->prev_sibling = sibling;
-    }
-    parent->children++;
+	list_t *new_node = malloc(sizeof(list_t));
+	list_t *last;
+
+	if (!new_node)
+		return (NULL);
+
+	new_node->dir = dir;
+	new_node->next = NULL;
+
+	if (*head)
+	{
+		last = *head;
+		while (last->next != NULL)
+			last = last->next;
+		last->next = new_node;
+	}
+	else
+		*head = new_node;
+
+	return (new_node);
 }
 
-void set_node_val_str(struct node_s *node, char *val)
+/**
+ * free_alias_list - Frees a alias_t linked list.
+ * @head: THe head of the alias_t list.
+ */
+void free_alias_list(alias_t *head)
 {
-    node->val_type = VAL_STR;
-    if(!val)
-    {
-        node->val.str = NULL;
-    }
-    else
-    {
-        char *val2 = malloc(strlen(val)+1);
-    
-    	if(!val2)
-        {
-            node->val.str = NULL;
-        }
-        else
-        {
-            strcpy(val2, val);
-            node->val.str = val2;
-        }
-    }
+	alias_t *next;
+
+	while (head)
+	{
+		next = head->next;
+		free(head->name);
+		free(head->value);
+		free(head);
+		head = next;
+	}
 }
 
-void free_node_tree(struct node_s *node)
+/**
+ * free_list - Frees a list_t linked list.
+ * @head: The head of the list_t list.
+ */
+void free_list(list_t *head)
 {
-    if(!node)
-    {
-        return;
-    }
-    struct node_s *child = node->first_child;
-    
-    while(child)
-    {
-        struct node_s *next = child->next_sibling;
-        free_node_tree(child);
-        child = next;
-    }
-    
-    if(node->val_type == VAL_STR)
-    {
-        if(node->val.str)
-        {
-            free(node->val.str);
-        }
-    }
-    free(node);
+	list_t *next;
+
+	while (head)
+	{
+		next = head->next;
+		free(head->dir);
+		free(head);
+		head = next;
+	}
 }

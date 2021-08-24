@@ -1,246 +1,146 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include <errno.h>
-#include <ctype.h>
+/*
+ * File: locate.c
+ * Authors: Ukonu, Divine Chisom
+ *          Nobert Patrick
+ */
+
 #include "shell.h"
-#include "scanner.h"
-#include "source.h"
 
-static char *tok_buf;
-static int   tok_bufsize;
-static int   tok_bufindex;
+char *fill_path_dir(char *path);
+list_t *get_path_dir(char *path);
 
-
-struct token_s *_switch(char nc, char nc2, int *n, int i, struct source_s *src);
-
-/* special token to indicate end of input */
-struct token_s eof_token = 
+/**
+ * get_location - Locates a command in the PATH.
+ * @command: The command to locate.
+ *
+ * Return: If an error occurs or the command cannot be located - NULL.
+ *         Otherwise - the full pathname of the command.
+ */
+char *get_location(char *command)
 {
-    .text_len = 0,
-};
+	char **path, *temp;
+	list_t *dirs, *head;
+	struct stat st;
 
-void add_to_buf(char c)
-{
-	tok_buf[tok_bufindex++] = c;
-
-	if (tok_bufindex >= tok_bufsize)
-	{
-		char *tmp = realloc(tok_buf, tok_bufsize * 2);
-
-		if (!tmp)
-		{
-			errno = ENOMEM;
-			return;
-		}
-		tok_buf = tmp;
-		tok_bufsize *= 2;
-	}
-}
-
-struct token_s *create_token(char *str)
-{
-	struct token_s *tok = malloc(sizeof(struct token_s));
-
-	if (!tok)
+	path = _getenv("PATH");
+	if (!path || !(*path))
 		return (NULL);
 
-	memset(tok, 0, sizeof(struct token_s));
-	tok->text_len = strlen(str);
+	dirs = get_path_dir(*path + 5);
+	head = dirs;
 
-	char *nstr = malloc(tok->text_len + 1);
-
-	if (!nstr)
+	while (dirs)
 	{
-		free(tok);
-		return (NULL);
-	}
+		temp = malloc(_strlen(dirs->dir) + _strlen(command) + 2);
+		if (!temp)
+			return (NULL);
 
-	strcpy(nstr, str);
-	tok->text = nstr;
+		_strcpy(temp, dirs->dir);
+		_strcat(temp, "/");
+		_strcat(temp, command);
 
-	return (tok);
-}
-
-void free_token(struct token_s *tok)
-{
-	if (tok->text)
-		free(tok->text);
-	free(tok);
-}
-
-struct token_s *tokenize(struct source_s *src)
-{
-	int endloop = 0;
-
-	if (!src || !src->buffer || src->bufsize)
-	{
-		errno = ENODATA;
-		return (&eof_token);
-	}
-
-	if (!tok_buf)
-	{
-		tok_bufsize = 1024;
-		tok_buf = malloc(tok_bufsize);
-		if(!tok_buf)
+		if (stat(temp, &st) == 0)
 		{
-			errno = ENOMEM;
-			return (&eof_token);
+			free_list(head);
+			return (temp);
+		}
+
+		dirs = dirs->next;
+		free(temp);
+	}
+
+	free_list(head);
+
+	return (NULL);
+}
+
+/**
+ * fill_path_dir - Copies path but also replaces leading/sandwiched/trailing
+ *		   colons (:) with current working directory.
+ * @path: The colon-separated list of directories.
+ *
+ * Return: A copy of path with any leading/sandwiched/trailing colons replaced
+ *	   with the current working directory.
+ */
+char *fill_path_dir(char *path)
+{
+	int i, length = 0;
+	char *path_copy, *pwd;
+
+	pwd = *(_getenv("PWD")) + 4;
+	for (i = 0; path[i]; i++)
+	{
+		if (path[i] == ':')
+		{
+			if (path[i + 1] == ':' || i == 0 || path[i + 1] == '\0')
+				length += _strlen(pwd) + 1;
+			else
+				length++;
+		}
+		else
+			length++;
+	}
+	path_copy = malloc(sizeof(char) * (length + 1));
+	if (!path_copy)
+		return (NULL);
+	path_copy[0] = '\0';
+	for (i = 0; path[i]; i++)
+	{
+		if (path[i] == ':')
+		{
+			if (i == 0)
+			{
+				_strcat(path_copy, pwd);
+				_strcat(path_copy, ":");
+			}
+			else if (path[i + 1] == ':' || path[i + 1] == '\0')
+			{
+				_strcat(path_copy, ":");
+				_strcat(path_copy, pwd);
+			}
+			else
+				_strcat(path_copy, ":");
+		}
+		else
+		{
+			_strncat(path_copy, &path[i], 1);
+		}
+	}
+	return (path_copy);
+}
+
+/**
+ * get_path_dir - Tokenizes a colon-separated list of
+ *                directories into a list_s linked list.
+ * @path: The colon-separated list of directories.
+ *
+ * Return: A pointer to the initialized linked list.
+ */
+list_t *get_path_dir(char *path)
+{
+	int index;
+	char **dirs, *path_copy;
+	list_t *head = NULL;
+
+	path_copy = fill_path_dir(path);
+	if (!path_copy)
+		return (NULL);
+	dirs = _strtok(path_copy, ":");
+	free(path_copy);
+	if (!dirs)
+		return (NULL);
+
+	for (index = 0; dirs[index]; index++)
+	{
+		if (add_node_end(&head, dirs[index]) == NULL)
+		{
+			free_list(head);
+			free(dirs);
+			return (NULL);
 		}
 	}
 
-	tok_bufindex = 0;
-	tok_buf[0] = '\0';
+	free(dirs);
 
-	char nc = next_char(src);
-	char nc2;
-	int i;
-
-	if (nc == ERRCHAR || nc == EOF)
-		return (&eof_token);
-
-	*_switch(nc, nc2, &endloop, i, src);
-
-	if (tok_bufindex == 0)
-		return (&eof_token);
-
-	if (tok_bufindex >= tok_bufsize)
-		tok_bufindex--;
-	tok_buf[tok_bufindex] = '\0';
-
-	struct token_s *tok = create_token(tok_buf);
-	if (!tok)
-	{
-		fprintf(stderr, "error failed to alloc buffer: %s\n", strerror(errno));
-		return (&eof_token);
-	}
-
-	tok->src = src;
-	return (tok);
-}
-
-struct token_s *_switch(char nc, char nc2, int *n, int i, struct source_s *src)
-{
-	int *endloop = n;
-
-	do
-    {
-        switch(nc)
-        {
-            case  '"':
-            case '\'':
-            case  '`':
-                /*
-                 * for quote chars, add the quote, as well as everything between this
-                 * quote and the matching closing quote, to the token buffer.
-                 */
-                add_to_buf(nc);
-                i = find_closing_quote(src->buffer+src->curpos);
-
-		if(!i)
-                {
-                    /* failed to find matching quote. return error token */
-                    src->curpos = src->bufsize;
-                    fprintf(stderr, "error: missing closing quote '%c'\n", nc);
-                    return (&eof_token);
-                }
-
-		while(i--)
-                {
-                    add_to_buf(next_char(src));
-                }
-                break;
-
-            case '\\':
-                /* get the next char after the backslah */
-                nc2 = next_char(src);
-
-		/*
-                 * discard backslash+newline '\\n' combination.. in an interactive shell, this
-                 * case shouldn't happen as the read_cmd() function discards the '\\n' sequence
-                 * automatically.. however, if the input comes from a command string or script,
-                 * we might encounter this sequence.
-                 */
-                if(nc2 == '\n')
-                {
-                    break;
-                }
-
-		/* add the backslah to the token buffer */
-                add_to_buf(nc);
-
-		/* add the escaped char to the token buffer */
-                if(nc2 > 0)
-                {
-                    add_to_buf(nc2);
-                }
-                break;
-                
-            case '$':
-                /* add the '$' to buffer and check the char after it */
-                add_to_buf(nc);
-                nc = peek_char(src);
-
-		/* we have a '${' or '$(' sequence */
-                if(nc == '{' || nc == '(')
-                {
-                    /* find the matching closing brace */
-                    i = find_closing_brace(src->buffer+src->curpos+1);
-
-		    if(!i)
-                    {
-                        /* failed to find matching brace. return error token */
-                        src->curpos = src->bufsize;
-                        fprintf(stderr, "error: missing closing brace '%c'\n", nc);
-                        return (&eof_token);
-                    }
-
-		    while(i--)
-                    {
-                        add_to_buf(next_char(src));
-                    }
-                }
-		/*
-                 * we have a special parameter name, such as $0, $*, $@, $#,
-                 * or a positional parameter name, such as $1, $2, ...
-                 */
-                else if(isalnum(nc) || nc == '*' || nc == '@' || nc == '#' ||
-                                       nc == '!' || nc == '?' || nc == '$')
-                {
-                    add_to_buf(next_char(src));
-                }
-                break;
-
-            case ' ':
-            case '\t':
-                if(tok_bufindex > 0)
-                {
-                    *endloop = 1;
-                }
-                break;
-                
-            case '\n':
-                if(tok_bufindex > 0)
-                {
-                    unget_char(src);
-                }
-                else
-                {
-                    add_to_buf(nc);
-                }
-                *endloop = 1;
-                break;
-                
-            default:
-                add_to_buf(nc);
-                break;
-        }
-
-        if(endloop)
-        {
-            break;
-        }
-
-    } while((nc = next_char(src)) != EOF);
+	return (head);
 }
